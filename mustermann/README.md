@@ -31,6 +31,7 @@ pattern.params('/a/b.c') # => { "prefix" => "a", splat => ["b", "c"] }
 * **[Regexp Look Alike](#-regexp-look-alike):** Mustermann patterns can be used as a replacement for regular expressions.
 * **[Parameter Parsing](#-parameter-parsing):** Mustermann can parse matched parameters into a Sinatra-style "params" hash, including type casting.
 * **[Peeking](#-peeking):** Lets you check if the beginning of a string matches a pattern.
+* **[Explaining Matches](#-explaining-matches):** Tells you how far a pattern matched and what was expected instead, useful for debugging 404s.
 * **[Expanding](#-expanding):** Besides parsing a parameters from an input string, a pattern object can also be used to generate a string from a set of parameters.
 * **[Generating Templates](#-generating-templates):** This comes in handy when wanting to hand on patterns rather than fully expanded strings as part of an external API.
 * **[Proc Look Alike](#-proc-look-alike):** Pass on a pattern instead of a block.
@@ -191,6 +192,45 @@ path_info    = '/foo/bar'
 params, size = patter.peek_params(path_info)  # params == { "prefix" => "foo" }
 rest         = path_info[size..-1]            # => "/bar"
 ```
+
+<a name="-explaining-matches"></a>
+## Explaining Matches
+
+AST based patterns (Sinatra, Rails, Template and friends) offer `explain_match` for diagnostics, for instance to figure out why a request resulted in a 404.
+It always returns a `Mustermann::AST::Explanation`, whether the string matches or not.
+
+On a successful match, the explanation carries the same `params` a regular match would produce, plus the byte range each capture occupied in the original string.
+Ranges always refer to raw bytes; URI-decoded values are available separately, so multibyte characters and percent escapes cannot shift the reported positions.
+
+``` ruby
+require 'mustermann'
+
+pattern     = Mustermann.new('/foo/:bar')
+explanation = pattern.explain_match('/foo/hello%20world')
+
+explanation.matched?                # => true
+explanation.params                  # => { "bar" => "hello world" }
+capture = explanation.captures['bar']
+capture.range                       # => 5...18 (byte offsets)
+capture.raw                         # => "hello%20world"
+capture.value                       # => "hello world"
+```
+
+On a failed match, the explanation reports the furthest byte position any candidate reached and the set of segments that were expected at that position.
+Expectations from parallel candidates (unions, optional branches) are merged, each keeping the pattern range it originates from.
+
+``` ruby
+explanation = pattern.explain_match('/fo')
+explanation.matched?                 # => false
+explanation.position                 # => 3
+explanation.prefix                   # => "/fo"
+explanation.expectations.first.description    # => "\"o\""
+explanation.expectations.first.pattern_range  # => 3...4 (offsets into the pattern)
+explanation.message                  # => "\"/foo/:bar\" does not match: expected \"o\" at byte 3 (after \"/fo\")"
+```
+
+The failure path is explored with a bounded search budget (configurable via the `budget` keyword) instead of regular expression backtracking, so diagnostics stay cheap even for pathological patterns. Regular matching is not affected.
+Note that `message` does not include the unmatched suffix of the input string, as it might contain sensitive data. Pass `include_suffix: true` or use the `suffix` reader if you need it.
 
 <a name="-expanding"></a>
 ## Expanding

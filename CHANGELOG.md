@@ -6,6 +6,10 @@ Mustermann follows [Semantic Versioning 2.0](http://semver.org/). Anything docum
 
 ### Mustermann 4.0.1
 
+#### New features
+
+* Added `Mustermann::AST::Pattern#explain_match` for diagnosing (non-)matches, for instance when debugging a 404. It returns a `Mustermann::AST::Explanation` either way: on a match it exposes the byte range each capture occupied in the original string (with decoded values kept in a separate field), on a failure it reports the furthest byte position reached and the set of segments expected there, merging expectations from union and optional branches while keeping the pattern ranges they originate from. Failure analysis walks the AST with a bounded search budget instead of regular expression backtracking, so regular matching is unaffected.
+
 #### Performance improvements
 
 * Reduce memory usage by deduplicating internal data structures. This is especially effective when using large `Mustermann::Set` objects. [#159](https://github.com/sinatra/mustermann/issues/159) [#160](https://github.com/sinatra/mustermann/pull/160) [@byroot](https://github.com/byroot)

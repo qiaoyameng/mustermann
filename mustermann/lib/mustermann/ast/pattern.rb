@@ -2,6 +2,7 @@
 require 'mustermann/ast/parser'
 require 'mustermann/ast/boundaries'
 require 'mustermann/ast/compiler'
+require 'mustermann/ast/explainer'
 require 'mustermann/ast/transformer'
 require 'mustermann/ast/validation'
 require 'mustermann/ast/template_generator'
@@ -137,12 +138,65 @@ module Mustermann
         @to_templates ||= Mustermann.dedup(generate_templates(to_ast))
       end
 
+      # Explains how the pattern matches (or fails to match) the given string.
+      #
+      # Unlike {#match}, this is meant for diagnostics (for instance figuring
+      # out why a request resulted in a 404) and returns an
+      # {Mustermann::AST::Explanation} either way:
+      #
+      # * On a successful match, the explanation carries the same params a
+      #   regular match would produce, plus the byte range each capture
+      #   occupied in the original string. Ranges always refer to raw bytes;
+      #   URI-decoded values are available separately, so multibyte
+      #   characters and percent escapes cannot shift the reported positions.
+      # * On a failed match, the explanation reports the furthest byte
+      #   position any candidate reached and the set of segments that were
+      #   expected at that position. Expectations from parallel candidates
+      #   (unions, optional branches) are merged, each keeping the pattern
+      #   range it originates from.
+      #
+      # The failing path is explored by walking the AST with a bounded search
+      # budget instead of relying on regular expression backtracking, so
+      # diagnostics stay cheap even for pathological patterns. Regular
+      # matching is not affected by any of this.
+      #
+      # @example
+      #   pattern = Mustermann.new('/foo/:bar')
+      #   pattern.explain_match('/foo/baz').captures['bar'].range # => 5...8
+      #   pattern.explain_match('/fo').message
+      #   # => "\"/foo/:bar\" does not match: expected \"o\" at byte 3 (after \"/fo\")"
+      #
+      # @param [String] string the string to match against
+      # @param [Integer] budget maximum number of candidate attempts for the
+      #   failure diagnostics
+      # @return [Mustermann::AST::Explanation] the explanation
+      def explain_match(string, budget: Explainer::DEFAULT_BUDGET)
+        return Explainer.new(self, string, budget: budget).explain unless match = regexp.match(string)
+        Explanation.new(pattern: self, string: string, matched: true,
+                        params: build_params(match), captures: explain_captures(string, match))
+      end
+
       # @!visibility private
       # @see Mustermann::Pattern#map_param
       def map_param(key, value)
         return super unless param_converters.include? key
         converted = super
         converted.nil? ? converted : param_converters[key][converted]
+      end
+
+      # @!visibility private
+      def explain_captures(string, match)
+        offsets = Explainer.byte_offsets(string)
+        match.regexp.named_captures.each_with_object({}) do |(name, positions), captures|
+          entries = positions.filter_map do |index|
+            next unless match.begin(index)
+            range = offsets[match.begin(index)]...offsets[match.end(index)]
+            Explanation::Capture.new(name: name, range: range,
+              raw: string.byteslice(range), value: map_param(name, match[index]))
+          end
+          next if entries.empty?
+          captures[name] = positions.size < 2 && !always_array?(name) ? entries.first : entries
+        end
       end
 
       # @!visibility private
