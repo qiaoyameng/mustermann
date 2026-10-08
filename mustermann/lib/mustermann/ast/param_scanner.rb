@@ -13,6 +13,25 @@ module Mustermann
         new.translate(ast, options)
       end
 
+      # Canonical, comparable representation of the type converter a capture
+      # spec implies. Two specs with the same key apply the same conversion to
+      # captured values (e.g. +Integer+ and +:integer+ share a key, while
+      # +Integer+ and +Float+ do not). Specs without type conversion (Regexp,
+      # String, constraint-only symbols) all map to nil.
+      # @!visibility private
+      def self.converter_key(spec)
+        case spec
+        when Symbol then converter_key_for(CONVERTERS[spec])
+        when Class  then converter_key_for(CONVERTERS[spec.name])
+        when Array  then spec.map { |element| converter_key(element) }
+        end
+      end
+
+      # @!visibility private
+      def self.converter_key_for(entry)
+        entry && entry.size > 1 ? entry[1] : nil
+      end
+
       translate(:node)             { |o| t(payload, o) }
       translate(:with_look_ahead)  { |o| t(head, o).merge(t(payload, o)) }
       translate(Array)             { |o| map { |e| t(e, o) }.inject(:merge) }

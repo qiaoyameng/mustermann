@@ -65,7 +65,15 @@ module Mustermann
         end
 
         # \G anchors to a position passed to String#match, avoiding substring allocation.
-        def compile(node, **options) = /\G#{@compiler.translate(node, **@options, **options)}/
+        def compile(node, **options)
+          matcher = /\G#{@compiler.translate(node, **@options, **options)}/
+          matchers << matcher
+          matcher
+        end
+
+        # All matchers compiled by this translator, in creation order.
+        # @!visibility private
+        def matchers = @matchers ||= []
       end
 
       attr_accessor :patterns, :set, :static, :dynamic
@@ -173,6 +181,7 @@ module Mustermann
           next if pattern.except_regexp&.match?(matched)
 
           pattern_params = build_pattern_params(pattern, params)
+          next unless pattern_params
 
           values = @set.values_for_pattern(pattern) || NIL_VALUES
           values.each do |value|
@@ -188,11 +197,17 @@ module Mustermann
       def build_pattern_params(pattern, params)
         return params if pattern.identity_params?(params)
 
+        equal_mode = pattern.repeated_capture_equal?
         result = {}
         params.each do |key, raw|
           if raw.is_a?(Array)
             val = raw.flat_map { |v| pattern.map_param(key, v) }
-            val = val.first if val.size < 2 && !pattern.always_array?(key)
+            if equal_mode
+              return nil unless val.all? { |v| v == val.first }
+              val = val.first unless pattern.always_array?(key)
+            else
+              val = val.first if val.size < 2 && !pattern.always_array?(key)
+            end
           else
             val = pattern.map_param(key, raw)
             val = [val] if pattern.always_array?(key)
@@ -200,6 +215,8 @@ module Mustermann
           result[key] = val
         end
         result
+      rescue StandardError
+        equal_mode ? nil : raise
       end
 
       def add(pattern)
@@ -207,19 +224,25 @@ module Mustermann
         @fast_static     = nil
         @byte_lookup     = nil
         @dynamic_entries = nil
-        Translator.new(pattern).translate(pattern.to_ast, self)
+        translator = Translator.new(pattern)
+        translator.translate(pattern.to_ast, self)
+        if pattern.repeated_capture_equal?
+          # The fast capture path overwrites earlier values of a repeated name,
+          # so equal-mode patterns must use the regexp path that accumulates them.
+          (@equal_matchers ||= {}.compare_by_identity).merge!(translator.matchers.to_h { |m| [m, true] })
+        end
       end
 
       # Compacts the trie by replacing sequential single-char static lookups with a
       # single stride-length hash lookup. The stride is the minimum number of static
       # steps all paths from this node share before hitting a dynamic edge or branch.
-      def optimize!
+      def optimize!(equal_matchers = @equal_matchers)
         depth = min_static_depth
         if depth > 1
           @fast_static = build_stride_hash(depth)
           @byte_lookup = nil
           @stride      = depth
-          @fast_static.each_value(&:optimize!)
+          @fast_static.each_value { |node| node.optimize!(equal_matchers) }
         elsif !@static&.any?
           @fast_static = nil
           @byte_lookup = nil
@@ -230,16 +253,16 @@ module Mustermann
           @byte_lookup = Array.new(256)
           @stride      = 1
           @static&.each { |k, v| @byte_lookup[k.getbyte(0)] = v }
-          @static&.each_value(&:optimize!)
+          @static&.each_value { |node| node.optimize!(equal_matchers) }
         end
 
-        @dynamic&.each_value(&:optimize!)
+        @dynamic&.each_value { |node| node.optimize!(equal_matchers) }
         @dynamic_entries = @dynamic&.map do |matcher, node|
           names = matcher.names.each(&:freeze)
           # Detect unconstrained single-segment captures: can use fast string.index instead of regex.
           # Two conditions: (1) the edge is a bare capture (source starts with \G(?<name>), no leading
           # static chars) and (2) the capture's character class excludes '/' (PATH_INFO never has '?' or '#').
-          fast = if names.size == 1
+          fast = if names.size == 1 && !equal_matchers&.include?(matcher)
             name = names.first
             matcher.source.start_with?("\\G(?<#{name}>") && !matcher.match?('/') ? name : nil
           end

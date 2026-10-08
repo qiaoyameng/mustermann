@@ -76,10 +76,22 @@ module Mustermann
 
       # add a tree for expansion
       # @!visibility private
-      def add(ast)
+      # @param [Mustermann::AST::Node] ast the tree to add
+      # @param [Boolean] unique_keys if true, repeated capture names only need a
+      #   single value for expansion, which is then used (and encoded) the same
+      #   way at every position the name appears in
+      def add(ast, unique_keys: false)
         translate(ast).each do |keys, pattern, filter|
           self.keys.concat(keys).uniq!
-          mappings[keys.sort] ||= [keys, pattern, filter]
+          if unique_keys
+            lookup = keys.uniq.sort
+            # multiple expansions may collapse to the same lookup key (e.g. an
+            # optional branch repeating a name); prefer the one using the value
+            # at the most positions
+            mappings[lookup] = [keys, pattern, filter] if mappings[lookup].nil? || mappings[lookup][0].size < keys.size
+          else
+            mappings[keys.sort] ||= [keys, pattern, filter]
+          end
         end
       end
 

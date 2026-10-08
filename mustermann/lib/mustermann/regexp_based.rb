@@ -62,6 +62,21 @@ module Mustermann
     # @see (see Mustermann::Pattern#match)
     def match(string) = cache_match(@match_cache, @regexp, string)
 
+    # @param (see Mustermann::Pattern#===)
+    # @return (see Mustermann::Pattern#===)
+    # @see (see Mustermann::Pattern#===)
+    def ===(string)
+      repeated_capture_equal? ? !match(string).nil? : regexp === string
+    end
+
+    # @param (see Mustermann::Pattern#=~)
+    # @return (see Mustermann::Pattern#=~)
+    # @see (see Mustermann::Pattern#=~)
+    def =~(string)
+      return regexp =~ string unless repeated_capture_equal?
+      match(string) ? 0 : nil
+    end
+
     # Extracts params directly from the regexp without allocating a Match object or
     # populating the match cache — significant GC savings when called in hot loops.
     # @param (see Mustermann::Pattern#params)
@@ -72,7 +87,7 @@ module Mustermann
     end
 
     extend Forwardable
-    def_delegators :regexp, :===, :=~, :names
+    def_delegators :regexp, :names
 
     private
 
@@ -87,11 +102,14 @@ module Mustermann
 
     def build_match(regexp, string)
       return unless match = regexp.match(string)
-      Match.new(self, match, params: build_params(match))
+      return unless params = build_params(match)
+      Match.new(self, match, params: params)
     end
 
     def build_params(match)
-      if @simple_captures
+      if repeated_capture_equal?
+        build_equal_params(match)
+      elsif @simple_captures
         params = match.named_captures
         return params if params.empty? || identity_params?(params)
         params.each_with_object({}) { |(k, v), h| h[k] = map_param(k, v) }
@@ -102,6 +120,28 @@ module Mustermann
           [name, value]
         end
       end
+    end
+
+    # Builds the params hash for +repeated_capture: :equal+ patterns.
+    #
+    # Values captured under the same name are compared after URI decoding and
+    # param conversion, so different legal encodings of the same value are
+    # considered equal. Captures inside optional branches that did not
+    # participate in the match do not take part in the constraint. Values of
+    # names that are always arrays (like +splat+) are compared element-wise.
+    #
+    # Returns nil if any repeated value differs or any conversion fails, which
+    # is treated as the pattern not matching at all.
+    # @!visibility private
+    def build_equal_params(match)
+      match.regexp.named_captures.each_with_object({}) do |(name, positions), params|
+        converted = positions.filter_map { |pos| match[pos] }.map! { |value| map_param(name, value) }
+        next if converted.empty?
+        return unless converted.all? { |value| value == converted.first }
+        params[name] = always_array?(name) ? converted : converted.first
+      end
+    rescue StandardError
+      nil
     end
 
     def compile(**options) = raise NotImplementedError, 'subclass responsibility'

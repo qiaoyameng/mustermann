@@ -4,6 +4,15 @@ Mustermann follows [Semantic Versioning 2.0](http://semver.org/). Anything docum
 
 ## Unreleased changes
 
+### Mustermann (unreleased)
+
+#### New features
+
+* Added `repeated_capture: :equal` option for AST-based pattern types (Sinatra, Rails, Template, etc.).
+  It allows using the same capture name more than once in a pattern and requires all occurrences to be
+  equal after URI decoding and parameter conversion. Without the option, duplicate capture names are
+  still rejected, and repeated splats are still collected into an array.
+
 ### Mustermann 4.0.1
 
 #### Performance improvements

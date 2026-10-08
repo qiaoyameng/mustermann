@@ -729,6 +729,46 @@ pattern = Mustermann.new(':a.:b', greedy: false)
 pattern.match('a.b.c.d') # => #<Mustermann::Match>
 ```
 
+<a name="-available-options--repeated_capture"></a>
+### `repeated_capture`
+
+Supported by: All types except `identity`, `regexp`, `shell` and `simple` patterns.
+Default value: `nil`
+
+By default, using the same capture name more than once in a pattern is rejected with a
+`Mustermann::CompileError` (unnamed splats are the exception, their values are collected
+into an array). Setting `repeated_capture` to `:equal` instead allows repeating a capture
+name and requires all its occurrences to have the same value:
+
+``` ruby
+pattern = Mustermann.new('/:tenant/projects/:tenant', repeated_capture: :equal)
+pattern.params('/acme/projects/acme') # => { "tenant" => "acme" }
+pattern.params('/acme/projects/other') # => nil
+```
+
+The comparison happens after URI decoding and parameter conversion, so different legal
+encodings of the same value are considered equal, and a failed conversion means the
+pattern does not match:
+
+``` ruby
+pattern.params('/abc/projects/%61bc') # => { "tenant" => "abc" }
+
+typed = Mustermann.new('/:id/x/:id', capture: :integer, repeated_capture: :equal)
+typed.params('/5/x/05') # => { "id" => 5 }
+```
+
+Captures inside optional branches that did not participate in the match do not take part
+in the constraint. Multiple splats are compared element-wise. Expanding such a pattern
+only needs a single value per name, which is encoded the same way at every position:
+
+``` ruby
+pattern.expand(tenant: 'a b') # => "/a%20b/projects/a%20b"
+```
+
+When concatenating patterns, the same capture name must use the same type converter in
+all parts, otherwise a `Mustermann::CompileError` is raised when the pattern is
+constructed.
+
 <a name="-available-options--space_matches_plus"></a>
 ### `space_matches_plus`
 

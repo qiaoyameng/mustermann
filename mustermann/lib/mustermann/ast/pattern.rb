@@ -16,7 +16,28 @@ module Mustermann
     # Superclass for pattern styles that parse an AST from the string pattern.
     # @abstract
     class Pattern < Mustermann::RegexpBased
-      supported_options :capture, :except, :greedy, :space_matches_plus
+      supported_options :capture, :except, :greedy, :space_matches_plus, :repeated_capture
+
+      # Supported modes for the +repeated_capture+ option.
+      # @!visibility private
+      REPEATED_CAPTURE_MODES = [nil, :equal].freeze
+
+      # @return [Symbol, nil] the +repeated_capture+ mode, if any
+      attr_reader :repeated_capture
+
+      # @param (see Mustermann::Pattern#initialize)
+      # @option options [Symbol] :repeated_capture set to +:equal+ to require that
+      #   captures with the same name all decode and convert to the same value
+      def initialize(string, repeated_capture: nil, **options, &block)
+        unless REPEATED_CAPTURE_MODES.include? repeated_capture
+          raise ArgumentError, "unsupported repeated_capture mode %p" % repeated_capture
+        end
+        @repeated_capture = repeated_capture
+        super(string, **options, &block)
+      end
+
+      # (see Mustermann::Pattern#repeated_capture_equal?)
+      def repeated_capture_equal? = repeated_capture == :equal
 
       extend Forwardable, SingleForwardable
       single_delegate on: :parser, suffix: :parser
@@ -108,7 +129,7 @@ module Mustermann
           ast   = parse(@string, pattern: self)
           ast &&= transform(ast)
           ast &&= set_boundaries(ast, string: @string)
-          validate(ast)
+          validate(ast, repeated_capture: repeated_capture)
         end
         @param_converters ||= Mustermann.dedup(scan_params(ast, options)) if ast
         ast

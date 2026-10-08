@@ -99,7 +99,9 @@ module Mustermann
       options = self.options
 
       if other.is_a? Pattern and other.names.any?
-        capture = normalize_capture(other).merge(normalize_capture(self))
+        mine, theirs = normalize_capture(self), normalize_capture(other)
+        check_converter_conflicts(mine, theirs) if options[:repeated_capture] == :equal
+        capture = theirs.merge(mine)
         capture = nil if capture.empty?
         options = options.merge(capture:)
       end
@@ -107,6 +109,16 @@ module Mustermann
       self.class.try_convert(other, names:, **options)
     end
 
-    private :native_concat, :normalize_capture, :try_convert
+    # @!visibility private
+    # Raises if both hashes constrain the same capture name with different type converters.
+    def check_converter_conflicts(mine, theirs)
+      theirs.each do |name, spec|
+        next unless mine.key? name
+        next if AST::ParamScanner.converter_key(spec) == AST::ParamScanner.converter_key(mine[name])
+        raise CompileError, "capture #{name} has conflicting type converters"
+      end
+    end
+
+    private :native_concat, :normalize_capture, :try_convert, :check_converter_conflicts
   end
 end

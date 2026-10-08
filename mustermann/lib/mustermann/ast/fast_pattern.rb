@@ -56,6 +56,7 @@ module Mustermann
       def simple_pattern?
         options[:capture].nil?  &&
           options[:except].nil? &&
+          options[:repeated_capture].nil? &&
           options.fetch(:greedy, true) != false &&
           uri_decode &&
           @string.match?(SIMPLE)

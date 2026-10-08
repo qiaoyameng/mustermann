@@ -93,6 +93,12 @@ module Mustermann
     # @return [Array<String>] list of named captures in the pattern
     def names = EMPTY_ARRAY
 
+    # Whether repeated capture names must all have equal (decoded and converted) values.
+    # Overridden by pattern types supporting the +repeated_capture+ option.
+    # @return [Boolean]
+    # @!visibility private
+    def repeated_capture_equal? = false
+
     # @param [String] string The string to match against
     # @return [Integer, nil] nil if pattern does not match the string, zero if it does.
     # @see http://ruby-doc.org/core-2.0/Regexp.html#method-i-3D-7E Regexp#=~

@@ -11,12 +11,20 @@ module Mustermann
       # Runs validations.
       #
       # @param [Mustermann::AST::Node] ast to be validated
+      # @param [Symbol] repeated_capture pass +:equal+ to allow using the same
+      #   capture name more than once
       # @return [Mustermann::AST::Node] the validated ast
       # @raise [Mustermann::AST::CompileError] if validation fails
       # @!visibility private
-      def self.validate(ast)
-        new.translate(ast)
+      def self.validate(ast, repeated_capture: nil)
+        new(repeated_capture: repeated_capture).translate(ast)
         ast
+      end
+
+      # @!visibility private
+      def initialize(repeated_capture: nil)
+        @allow_repeated_names = repeated_capture == :equal
+        super()
       end
 
       translate(Object, :splat) {}
@@ -31,7 +39,7 @@ module Mustermann
         raise CompileError, "capture name can't be empty" if name.nil? or name.empty?
         raise CompileError, "capture name must start with underscore or lower case letter" unless name =~ /^[a-z_]/
         raise CompileError, "capture name can't be #{name}" if Array(forbidden).include? name
-        raise CompileError, "can't use the same capture name twice" if names.include? name
+        raise CompileError, "can't use the same capture name twice" if !@allow_repeated_names and names.include? name
         names << name
       end
 

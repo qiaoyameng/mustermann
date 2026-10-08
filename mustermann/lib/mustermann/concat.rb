@@ -42,7 +42,18 @@ module Mustermann
     # @!visibility private
     def initialize(*, **)
       super
-      AST::Validation.validate(combined_ast) if respond_to? :expand
+      if repeated_capture_equal?
+        validate_converter_consistency
+        AST::Validation.validate(combined_ast, repeated_capture: :equal) if respond_to? :expand
+      else
+        AST::Validation.validate(combined_ast) if respond_to? :expand
+      end
+    end
+
+    # A concatenation enforces equal repeated captures if any of its patterns does.
+    # @!visibility private
+    def repeated_capture_equal?
+      patterns.any? { |pattern| pattern.repeated_capture_equal? }
     end
 
     # @see Mustermann::Composite#operator
@@ -70,6 +81,7 @@ module Mustermann
 
     # @see Mustermann::Pattern#peek_size
     def peek_size(string)
+      return peek_match(string)&.to_s&.size if repeated_capture_equal?
       pump(string) { |p,s| p.peek_size(s) }
     end
 
@@ -79,14 +91,19 @@ module Mustermann
       params         = {}
       captures       = []
       named_captures = {}
+      equal_mode     = repeated_capture_equal?
+      param_parts    = [] if equal_mode
 
       patterns.each do |pattern|
         return unless part = pattern.peek_match(post_match)
+        param_parts << part.params if equal_mode
         params.merge!(part.params)
         named_captures.merge!(part.named_captures)
         captures.concat(part.captures)
         post_match = post_match[part.to_s.size..-1]
       end
+
+      return if equal_mode && !equal_param_parts?(param_parts)
 
       matched = string[0, string.size - post_match.size]
       Match.new(self, string, matched:, params:, captures:, named_captures:, post_match:)
@@ -94,6 +111,10 @@ module Mustermann
 
     # @see Mustermann::Pattern#peek_params
     def peek_params(string)
+      if repeated_capture_equal?
+        match = peek_match(string) or return
+        return match.params, match.to_s.size
+      end
       pump(string, inject_with: :merge, with_size: true) { |p, s| p.peek_params(s) }
     end
 
@@ -142,6 +163,41 @@ module Mustermann
       AST::Node[:root].new(payload)
     end
 
-    private :combined_ast, :pump
+    # Values captured under the same name in different sub-patterns must all be
+    # equal (they are already URI decoded and converted by the sub-patterns).
+    # Array values (from splats) are compared element-wise.
+    # @!visibility private
+    def equal_param_parts?(parts)
+      seen = {}
+      parts.each do |params|
+        params.each do |name, value|
+          return false if seen.key?(name) && seen[name] != value
+          seen[name] = value
+        end
+      end
+      true
+    end
+
+    # Raises if a capture name is used with different type converters in
+    # different sub-patterns, making equality of the converted values
+    # ill-defined.
+    # @!visibility private
+    def validate_converter_consistency
+      converters = {}
+      patterns.each do |pattern|
+        capture = pattern.options&.[](:capture)
+        next unless pattern.respond_to? :names
+        pattern.names.each do |name|
+          spec = capture.is_a?(Hash) ? capture[name.to_sym] : capture
+          key  = AST::ParamScanner.converter_key(spec)
+          if converters.key?(name) && converters[name] != key
+            raise CompileError, "capture #{name} has conflicting type converters"
+          end
+          converters[name] = key
+        end
+      end
+    end
+
+    private :combined_ast, :pump, :equal_param_parts?, :validate_converter_consistency
   end
 end
