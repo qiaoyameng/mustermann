@@ -2,6 +2,7 @@
 require 'mustermann/ast/parser'
 require 'mustermann/ast/boundaries'
 require 'mustermann/ast/compiler'
+require 'mustermann/ast/explainer'
 require 'mustermann/ast/transformer'
 require 'mustermann/ast/validation'
 require 'mustermann/ast/template_generator'
@@ -112,6 +113,35 @@ module Mustermann
         end
         @param_converters ||= Mustermann.dedup(scan_params(ast, options)) if ast
         ast
+      end
+
+      # Explains how the pattern relates to the given string, for instance to
+      # debug why a request did not match any route.
+      #
+      # @example
+      #   pattern = Mustermann.new('/users/:id')
+      #
+      #   explanation = pattern.explain_match('/users/42')
+      #   explanation.matched?                # => true
+      #   explanation.captures.first.name     # => "id"
+      #   explanation.captures.first.byte_range # => 7...9
+      #
+      #   explanation = pattern.explain_match('/users')
+      #   explanation.matched?   # => false
+      #   explanation.position   # => 6
+      #   explanation.message    # => "expected \"/\" at byte 6"
+      #
+      # The verdict always agrees with {#match}, but unlike {#match} a failed
+      # explanation reports the furthest byte position any candidate reached
+      # and what was expected there. Failure diagnosis walks the AST with a
+      # limited search budget instead of relying on regular expression
+      # backtracking; the budget only applies here, not to {#match}.
+      #
+      # @param [String] string the string to match against
+      # @param [Integer] budget maximum number of search steps for failure diagnosis
+      # @return [Mustermann::AST::Explanation] the explanation
+      def explain_match(string, budget: Explainer::DEFAULT_BUDGET)
+        Explainer.explain(self, string, budget: budget)
       end
 
       # All AST-based pattern implementations support expanding.
