@@ -16,7 +16,7 @@ module Mustermann
     # Superclass for pattern styles that parse an AST from the string pattern.
     # @abstract
     class Pattern < Mustermann::RegexpBased
-      supported_options :capture, :except, :greedy, :space_matches_plus
+      supported_options :capture, :except, :greedy, :space_matches_plus, :repeated_capture
 
       extend Forwardable, SingleForwardable
       single_delegate on: :parser, suffix: :parser
@@ -27,6 +27,27 @@ module Mustermann
       # @api private
       def self.ast_cache
         @ast_cache ||= EqualityMap.new
+      end
+
+      # @param (see Mustermann::Pattern#initialize)
+      # @option options [Symbol] repeated_capture
+      #   How to treat a capture name that appears more than once in the pattern.
+      #   By default (or when set to +false+), repeated names keep the behavior of the
+      #   underlying regexp engine. When set to +:equal+, all occurrences of the same
+      #   name must capture values that are equal after URI decoding and param
+      #   conversion, otherwise the pattern does not match. Captures inside optional
+      #   branches that did not participate in the match are exempt from this
+      #   constraint. Expanding such a pattern only takes a single value per name,
+      #   which is used (with the same encoding) at every position the name appears.
+      # @return (see Mustermann::Pattern#initialize)
+      # @raise [ArgumentError] if an unknown repeated_capture mode is given
+      # @see (see Mustermann::Pattern#initialize)
+      def initialize(string, **options)
+        mode = options[:repeated_capture]
+        unless mode.nil? or mode == false or mode == :equal
+          raise ArgumentError, "unsupported repeated_capture mode %p, expected :equal" % mode
+        end
+        super
       end
 
       # @api private
@@ -108,10 +129,54 @@ module Mustermann
           ast   = parse(@string, pattern: self)
           ast &&= transform(ast)
           ast &&= set_boundaries(ast, string: @string)
-          validate(ast)
+          validate(ast, repeated_capture: options[:repeated_capture])
         end
         @param_converters ||= Mustermann.dedup(scan_params(ast, options)) if ast
         ast
+      end
+
+      # @see Mustermann::Pattern#===
+      def ===(string)
+        return super unless repeated_capture_equal?
+        string.is_a?(String) ? !!match(string) : false
+      end
+
+      # @see Mustermann::Pattern#=~
+      def =~(string)
+        return super unless repeated_capture_equal?
+        string.is_a?(String) && match(string) ? 0 : nil
+      end
+
+      # @!visibility private
+      # Whether the repeated_capture: :equal mode is enabled for this pattern.
+      def repeated_capture_equal?
+        options[:repeated_capture] == :equal
+      end
+
+      # @return [Array<String>] capture names appearing more than once in the pattern
+      # @!visibility private
+      def repeated_capture_names
+        @repeated_capture_names ||= Mustermann.dedup(
+          regexp.named_captures.select { |_name, positions| positions.size > 1 }.keys)
+      end
+
+      # Enforces the repeated_capture: :equal constraint after URI decoding and
+      # param conversion, and collapses all occurrences of a repeated name to a
+      # single value. A failed param conversion is treated as "no match".
+      # @!visibility private
+      def build_params(match)
+        params = super
+        return params unless repeated_capture_equal?
+        return unless params
+        repeated_capture_names.each do |name|
+          values = params[name].compact
+          return unless values.each_cons(2).all? { |a, b| a == b }
+          params[name] = always_array?(name) ? values.first(1) : values.first
+        end
+        params
+      rescue StandardError
+        raise unless repeated_capture_equal?
+        nil
       end
 
       # All AST-based pattern implementations support expanding.
@@ -155,7 +220,8 @@ module Mustermann
         param_converters.empty? && super
       end
 
-      private :compile, :parse, :transform, :validate, :generate_templates, :param_converters, :scan_params, :set_boundaries
+      private :compile, :parse, :transform, :validate, :generate_templates, :param_converters, :scan_params, :set_boundaries,
+        :repeated_capture_equal?, :repeated_capture_names, :build_params
     end
   end
 end

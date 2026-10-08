@@ -28,7 +28,16 @@ module Mustermann
       end
 
       converter   = pattern.converters.fetch(converter_name) { unexpected("converter %p" % converter_name) }
-      converter   = converter.new(*args, **opts)  if converter.respond_to? :new
+      if converter.respond_to? :new
+        # Memoize converter instances per parse, so that identical converters
+        # used for the same capture name share one object (and therefore one
+        # conversion rule). This allows validation to detect actually
+        # differing conversion rules for repeated capture names.
+        converter_instances = @converter_instances ||= {}
+        converter = converter_instances.fetch([converter_name, args, opts]) do
+          converter_instances[[converter_name, args, opts]] = converter.new(*args, **opts)
+        end
+      end
       constraint  = converter.constraint          if converter.respond_to? :constraint
       convert     = converter.convert             if converter.respond_to? :convert
       qualifier   = converter.qualifier           if converter.respond_to? :qualifier

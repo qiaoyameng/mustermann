@@ -426,6 +426,13 @@ module Mustermann
     private
 
     def add_pattern(pattern)
+      # The trie matcher cannot enforce the repeated_capture: :equal
+      # constraint, fall back to the linear matcher for such patterns.
+      if repeated_capture_constraint?(pattern) && @use_trie != false
+        @use_trie = false
+        @matcher  = nil
+      end
+
       if @use_trie.is_a? Integer and @mapping.size >= @use_trie
         @use_trie = true
         @matcher = build_matcher
@@ -442,6 +449,13 @@ module Mustermann
       matcher = StrictOrder.new(matcher) if strict_order?
       matcher = Cache.new(matcher) if use_cache?
       matcher
+    end
+
+    # @!visibility private
+    def repeated_capture_constraint?(pattern)
+      pattern.respond_to?(:repeated_capture_equal?, true) &&
+        pattern.send(:repeated_capture_equal?) &&
+        pattern.send(:repeated_capture_names).any?
     end
   end
 end

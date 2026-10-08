@@ -7,6 +7,7 @@ The `sinatra` pattern type is implemented by Mustermann itself. Moreover, it is 
 [`except`](#-available-options--except),
 [`greedy`](#-available-options--greedy),
 [`space_matches_plus`](#-available-options--space_matches_plus),
+[`repeated_capture`](#repeated-captures),
 [`uri_decode`](#-available-options--uri_decode),
 [`ignore_unknown_options`](#-available-options--ignore_unknown_options).
 
@@ -101,3 +102,41 @@ pattern.params('/a/b/c') # => { "splat" => ["a/b/c"] }
 | `/*` | `/a/b/c` | `{"splat" => ["a/b/c"]}` |
 | `/:name/*` | `/alice/some/path` | `{"name" => "alice", "splat" => ["some/path"]}` |
 | `/:foo(/:bar)` | `/hello` | `{"foo" => "hello", "bar" => nil}` |
+
+## Repeated Captures
+
+By default, a capture name may only be used once per pattern. With the
+`repeated_capture: :equal` option, the same name may appear multiple times,
+and all occurrences must capture the same value for the pattern to match.
+
+The comparison happens after URI decoding and param conversion, so different
+legal encodings of the same value are considered equal. If any param
+conversion fails, the pattern does not match. Captures inside optional
+branches that did not participate in the match are exempt from the
+constraint. Multiple splats with the same name have their values compared
+element wise.
+
+``` ruby
+require 'mustermann'
+
+pattern = Mustermann.new('/:tenant/projects/:tenant', repeated_capture: :equal)
+
+pattern === '/acme/projects/acme'   # => true
+pattern === '/acme/projects/%61cme' # => true, %61 decodes to "a"
+pattern === '/acme/projects/other'  # => false
+
+pattern.params('/acme/projects/%61cme') # => { "tenant" => "acme" }
+pattern.params('/acme/projects/other')  # => nil
+```
+
+Expanding such a pattern only takes a single value per repeated name, which
+is used (with the same encoding) at every position the name appears:
+
+``` ruby
+pattern.expand(tenant: 'acme') # => "/acme/projects/acme"
+pattern.expand(tenant: 'a b')  # => "/a%20b/projects/a%20b"
+```
+
+If the same capture name is used with different converters (for instance
+with `flask` patterns), pattern construction raises a
+`Mustermann::CompileError`.

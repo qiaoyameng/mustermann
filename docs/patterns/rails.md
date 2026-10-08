@@ -7,6 +7,7 @@ The `rails` pattern is part of Mustermann (no mustermann-contrib needed). It is 
 [`except`](#-available-options--except),
 [`greedy`](#-available-options--greedy),
 [`space_matches_plus`](#-available-options--space_matches_plus),
+[`repeated_capture`](sinatra.md#repeated-captures),
 [`uri_decode`](#-available-options--uri_decode),
 [`version`](#version),
 [`ignore_unknown_options`](#-available-options--ignore_unknown_options).

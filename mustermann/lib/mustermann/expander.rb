@@ -48,11 +48,12 @@ module Mustermann
           next
         end
         pattern = Mustermann.new(pattern, **@options)
+        unique_keys = pattern.respond_to?(:repeated_capture_equal?, true) && pattern.send(:repeated_capture_equal?)
         if block_given?
-          @api_expander.add(yield(pattern))
+          @api_expander.add(yield(pattern), unique_keys: unique_keys)
         else
           raise NotImplementedError, "expanding not supported for #{pattern.class}" unless pattern.respond_to? :to_ast
-          @api_expander.add(pattern.to_ast)
+          @api_expander.add(pattern.to_ast, unique_keys: unique_keys)
         end
         @patterns << pattern
       end

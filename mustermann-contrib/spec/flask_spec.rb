@@ -359,4 +359,24 @@ describe Mustermann::Flask do
         to raise_error(Mustermann::ParseError, 'unexpected end of string while parsing "<string(\\"foo"')
     end
   end
+
+  context 'repeated_capture: :equal' do
+    it 'allows the same converter for a repeated capture name' do
+      pattern = Mustermann::Flask.new('/<int:id>/x/<int:id>', repeated_capture: :equal)
+      expect(pattern.params('/1/x/01')).to be == { 'id' => 1 }
+      expect(pattern.params('/1/x/2')).to be_nil
+      expect(pattern.expand(id: 5)).to be == '/5/x/5'
+      expect(pattern.params(pattern.expand(id: 5))).to be == { 'id' => 5 }
+    end
+
+    it 'rejects different converters for the same capture name at construction' do
+      expect { Mustermann::Flask.new('/<int:id>/x/<string:id>', repeated_capture: :equal) }.
+        to raise_error(Mustermann::CompileError, /can't use the same capture name with different converters/)
+    end
+
+    it 'rejects same converter with different arguments for the same capture name' do
+      expect { Mustermann::Flask.new('/<int(min=1):id>/x/<int(min=2):id>', repeated_capture: :equal) }.
+        to raise_error(Mustermann::CompileError, /can't use the same capture name with different converters/)
+    end
+  end
 end

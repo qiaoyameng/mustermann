@@ -87,7 +87,8 @@ module Mustermann
 
     def build_match(regexp, string)
       return unless match = regexp.match(string)
-      Match.new(self, match, params: build_params(match))
+      return unless params = build_params(match)
+      Match.new(self, match, params: params)
     end
 
     def build_params(match)

@@ -37,6 +37,7 @@ pattern.params('/a/b/c') # => { "prefix" => "a/b", "name" => "c" }
 [`except`](#-available-options--except),
 [`greedy`](#-available-options--greedy),
 [`space_matches_plus`](#-available-options--space_matches_plus),
+[`repeated_capture`](sinatra.md#repeated-captures),
 [`uri_decode`](#-available-options--uri_decode),
 [`ignore_unknown_options`](#-available-options--ignore_unknown_options).
 
